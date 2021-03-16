@@ -3,26 +3,6 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-import gpflow
-from gpflow.utilities import print_summary
-
-
-def TrainGPPrior(X, y, maxiter=100, verbose=False):
-    """"Pretrains a GP prior on the data for `maxiter` iterations.
-
-    Returns the learned model.
-    """
-    kernel = gpflow.kernels.Matern52()
-    gp_prior = gpflow.models.GPR(data=(X, y), kernel=kernel,
-                                 mean_function=None)
-    optimizer = gpflow.optimizers.Scipy()
-    opt_logs = optimizer.minimize(gp_prior.training_loss,
-                                  gp_prior.trainable_variables,
-                                  options=dict(maxiter=maxiter))
-    if verbose:
-        print_summary(gp_prior)
-    return gp_prior, opt_logs
-
 
 def ComputeCrossEntropy(config):
     """
@@ -45,12 +25,13 @@ def ComputeCrossEntropy(config):
     if 'gp' in method:
       x, y = config['x'], config['y']
       kernel_function = config['kernel_function']
+      mean_function = config['mean_function']
       kernel_matrix = kernel_function(tf.cast(x, tf.float64))
       kernel_matrix += 0.01 * tf.eye(tf.shape(x)[0], dtype=tf.float64)
 
       # Build the GP as a simple MVN with the given `kernel_matrix`.
       prior = tfp.distributions.MultivariateNormalFullCovariance(
-        tf.zeros(x.shape[0], dtype=tf.float64), kernel_matrix)
+        tf.squeeze(mean_function(x), -1), kernel_matrix)
 
       # Compute analytic crossentropy.
       cross_entropy = -tf.reduce_mean(
@@ -75,7 +56,7 @@ def ComputeCrossEntropy(config):
     elif 'sliced' in method:
       y = config['y']
       score_estimator = config['score_estimator']
-      cross_entropy_gradients = score_estimator(y)
+      cross_entropy_gradients = score_estimator(y, training=False)
 
       cross_entropy = -tf.reduce_mean(tf.reduce_sum(
         tf.stop_gradient(cross_entropy_gradients) * y))
